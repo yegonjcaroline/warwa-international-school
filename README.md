@@ -1,56 +1,153 @@
 # Warwa International School Portal
 
-A standalone PHP and MySQL school portal. Students create accounts, browse courses and unlock enrollment after a verified KSh 5 payment. Administrators manage students, courses and payment records.
+A standalone PHP and MySQL school management portal. Students can register, browse courses, pay a KSh 5 enrollment fee through Paystack or M-Pesa, and access courses after server-side payment verification. Administrators manage students, courses, enrollments, and payments.
+
+Public repository: https://github.com/yegonjcaroline/warwa-international-school
+
+## Features
+
+- Student registration, login, password reset, and role-based sessions
+- Course catalog, paid enrollment, and student learning area
+- Administrator dashboard for students, courses, payments, and enrollments
+- Paystack Checkout and M-Pesa Daraja STK Push with backend verification
+- Gmail SMTP notifications and password-reset OTP by email
+- Africa's Talking SMS integration (Sandbox or Live configuration)
+- Responsive interface using HTML, Tailwind CSS CDN, and custom CSS
+
+## Requirements
+
+- PHP 8.1 or newer
+- MySQL 8+ or MariaDB 10.4+
+- XAMPP or another Apache/PHP/MySQL environment
+- Composer
+- PHP extensions: PDO MySQL, cURL, OpenSSL, and mbstring
+- Internet access for Composer and payment/email/SMS provider APIs
 
 ## Project structure
 
 ```text
 Warwa-International-School/
-├── admin/                 Administrator pages
-├── assets/css, assets/js  Theme and password visibility controls
-├── callbacks/             Paystack return verification and M-Pesa callback
-├── config/                Environment and database setup
-├── includes/              Shared layout, notices and payment logic
-├── student/               Student dashboards and learning history
-├── database.sql           MySQL schema and starter courses
-├── .env.example           Safe configuration template
-└── .gitignore
+|-- admin/                 Administrator pages
+|-- assets/
+|   |-- css/style.css      Theme and responsive layout
+|   |-- images/            School imagery
+|   `-- js/app.js          Password visibility controls
+|-- callbacks/             Paystack and M-Pesa payment callbacks
+|-- config/                Environment and database setup
+|-- includes/              Layout, email, SMS, and payment helpers
+|-- student/               Student dashboard, learning, and payments
+|-- storage/               Runtime storage; contents are ignored by Git
+|-- .env.example           Safe configuration template
+|-- composer.json          PHP dependencies
+`-- database.sql           MySQL schema and starter courses
 ```
 
 ## Local setup with XAMPP
 
-1. Place this folder at `C:\xampp\htdocs\Warwa-International-School`.
-2. Start Apache and MySQL in the XAMPP Control Panel.
-3. Import `database.sql` using phpMyAdmin or MySQL. The script creates the `warwa_school` database.
-4. Copy `.env.example` to `.env`. Set the database values and `APP_URL=http://localhost/Warwa-International-School`.
-5. Install the optional SMTP mail package from this folder with `composer install`. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_ENCRYPTION`, `MAIL_FROM`, and `SCHOOL_EMAIL` in `.env`. Without SMTP, PHP's configured `mail()` transport is used.
-6. Open `http://localhost/Warwa-International-School/setup-admin.php` and create the first administrator. This page locks as soon as an administrator exists.
-7. Register a student at `/register.php`, then sign in at `/login.php`.
+1. Copy or clone this folder to `C:\xampp\htdocs\Warwa-International-School`.
+2. Start **Apache** and **MySQL** in the XAMPP Control Panel.
+3. Open Command Prompt in the project folder and install PHP dependencies:
 
-## Payments
+   ```cmd
+   cd /d C:\xampp\htdocs\Warwa-International-School
+   composer install
+   ```
 
-The fixed school enrollment fee is KSh 5. M-Pesa Daraja receives integer amount `5`. Paystack expects minor units, so the server sends `500` with currency `KES`. The KSh 5 fee satisfies Paystack's published KES minimum. Both payment methods are available to students. The backend creates a pending payment first and only creates course enrollment after provider verification. Repeated callback processing is idempotent.
+4. Create the local configuration file:
 
-### Paystack sandbox
+   ```cmd
+   copy .env.example .env
+   ```
 
-Add a Paystack **test** secret key to `PAYSTACK_SECRET_KEY`. The browser is redirected to Paystack Checkout; after return, PHP calls Paystack's transaction verification endpoint and checks the reference, success status, KES currency and exact amount before granting enrollment. Never use a secret key in browser JavaScript.
+5. Import `database.sql` in phpMyAdmin. It creates the `warwa_school` database and inserts the starter courses. If your MySQL root account has a password, enter it in `.env`.
+6. Edit `.env` and set at least:
+   - `APP_URL=http://localhost/Warwa-International-School`
+   - `DB_HOST=127.0.0.1`, `DB_PORT=3306`, `DB_NAME=warwa_school`
+   - `DB_USER` and `DB_PASS` for your local MySQL account
+7. Open [http://localhost/Warwa-International-School](http://localhost/Warwa-International-School).
 
-### M-Pesa Daraja sandbox and ngrok
+### Create the first administrator
 
-Set the Daraja sandbox consumer key, consumer secret, shortcode and passkey in `.env`. Start ngrok for your local Apache port (commonly `ngrok http 80`), then copy its HTTPS URL into `MPESA_CALLBACK_URL`, followed by `/Warwa-International-School/callbacks/mpesa.php`. Keep that URL current while ngrok is running. The student enters a Kenyan mobile number and approves the STK prompt. Only a successful callback with the expected amount and phone activates enrollment. Sandbox availability and test numbers are controlled by Safaricom Developer Portal.
+The web-based first-admin setup page is intentionally not included in the public repository. For a fresh database, first register an account at `/register.php`, then promote that account using phpMyAdmin's SQL tab. Replace the email with the administrator account you just registered:
 
-Switch `MPESA_ENV=production` only after configuring production Daraja credentials and a stable HTTPS callback URL. Keep both providers in sandbox while developing.
+```sql
+UPDATE users
+SET role = 'admin'
+WHERE email = 'admin@example.com' AND role = 'student';
+```
 
-## Email, notices and OTP
+Sign out and sign in again. The account will open the administrator dashboard. Do this only on a database you control.
 
-Payment/enrollment results are emailed to the student and `SCHOOL_EMAIL`. Password reset codes are sent only to the account email, expire after ten minutes, and are stored hashed. This keeps account recovery codes private. SMTP delivery needs a working mail account and valid sender domain. M-Pesa sends its STK payment prompt to the student's phone; SMS delivery beyond the provider prompt needs a separate SMS service.
+## Payment setup
 
-## Security notes
+The enrollment fee is KSh 5. A successful, verified payment is required before the enrollment is activated.
 
-- Passwords are hashed with `password_hash()` and checked with `password_verify()`.
-- Sessions use HTTP-only and same-site cookies; forms use CSRF tokens and role checks.
-- Database operations use PDO prepared statements.
-- Payment credentials stay in `.env`, which is ignored by Git and denied by the included Apache rules.
-- Never commit `.env`, test or live credentials, real student details, or payment callback secrets.
-- Configure HTTPS, database backups, outbound SMTP and production access controls before using real student information or live payment credentials.
-- Keep `database.sql` and `.env.example` in the project source; Apache rules prevent serving them as web pages.
+### Paystack Sandbox
+
+1. Use Paystack **test** keys in `.env`:
+   - `PAYSTACK_SECRET_KEY`
+   - `PAYSTACK_PUBLIC_KEY`
+2. The backend initializes Checkout for KES 500 minor units (KSh 5), then verifies the returned transaction reference, status, currency, and amount with Paystack before activating enrollment.
+3. Use Paystack test checkout details while in test mode. Never place the secret key in browser JavaScript or commit it to Git.
+
+### M-Pesa Daraja Sandbox
+
+1. Set `MPESA_ENV=sandbox` and enter the Daraja **sandbox** consumer key and secret.
+2. Keep the sandbox shortcode, passkey, and transaction type from the Daraja sandbox configuration.
+3. For a private local PHP server, open a Command Prompt in the project folder and run:
+
+   ```cmd
+   C:\xampp\php\php.exe -S 127.0.0.1:8001
+   ```
+
+4. In a second Command Prompt, run `ngrok http 8001`. Keep both windows open.
+5. Set `APP_URL` to the current HTTPS ngrok address. Set `MPESA_CALLBACK_URL` to that address plus `/callbacks/mpesa.php`. For example:
+
+   ```env
+   APP_URL=https://your-current-ngrok-host.ngrok-free.dev
+   MPESA_CALLBACK_URL=https://your-current-ngrok-host.ngrok-free.dev/callbacks/mpesa.php
+   ```
+
+6. Restart the PHP server after changing `.env`. Use Safaricom's sandbox test number. The callback must be reachable over HTTPS. Update the callback whenever the temporary ngrok address changes.
+
+Do not use live credentials or a real customer payment while testing.
+
+## Email and password reset OTP
+
+The project uses PHPMailer and Gmail SMTP. For Gmail, enable 2-Step Verification and create an App Password. Configure:
+
+- `SMTP_HOST=smtp.gmail.com`
+- `SMTP_PORT=587`
+- `SMTP_ENCRYPTION=tls`
+- `SMTP_USERNAME` and `MAIL_FROM` as the sending Gmail address
+- `SMTP_PASSWORD` as the App Password, entered without spaces
+- `SCHOOL_EMAIL` as the administrator notification inbox
+
+Account and payment notices go to the student and administrator when both addresses are configured. Password-reset OTPs go only to the student's registered email and phone; the administrator receives a reset-request notice without the code. OTPs expire after ten minutes and are stored hashed.
+
+## SMS setup
+
+The project sends SMS through the Africa's Talking API.
+
+### Sandbox
+
+- Set `AT_ENV=sandbox`
+- Set `AT_USERNAME=sandbox`
+- Put the API key generated from the Africa's Talking **Sandbox App** in `AT_API_KEY`
+- Set `SMS_ADMIN_PHONE` to the administrator's Kenyan mobile number in international format, for example `+2547XXXXXXXX`
+- Ensure each student's account has a phone number
+
+Sandbox SMS is simulated. Messages appear in Africa's Talking's simulator and are not delivered to real handsets. The simulator must be reachable for delivery simulation.
+
+### Live SMS
+
+Live SMS requires separate Live credentials, a configured sender ID or shortcode, account activation, and any required airtime/balance. Live messages may incur charges. Change to Live only after obtaining the provider's approval and replacing all Sandbox credentials.
+
+## Security and deployment notes
+
+- `.env` is ignored by Git. Keep credentials only in that file or a secret manager.
+- `.env.example` contains placeholders, not working credentials.
+- Passwords use `password_hash()` and `password_verify()`.
+- Database access uses PDO prepared statements; forms use CSRF tokens and role checks.
+- Payment callbacks are verified server-side and duplicate payment processing is guarded.
+- Configure HTTPS, secure database credentials, backups, sender authentication, and access controls before using real student data or live payment/SMS services.
