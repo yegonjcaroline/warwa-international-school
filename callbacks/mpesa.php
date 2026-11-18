@@ -1,0 +1,13 @@
+<?php
+require_once dirname(__DIR__).'/config/database.php';require_once dirname(__DIR__).'/includes/payments.php';header('Content-Type: application/json');
+$body=json_decode(file_get_contents('php://input'),true);$callback=$body['Body']['stkCallback']??null;if(!$callback){echo json_encode(['ResultCode'=>0,'ResultDesc'=>'Accepted']);exit;}
+$checkout=(string)($callback['CheckoutRequestID']??'');$resultCode=(int)($callback['ResultCode']??-1);$items=$callback['CallbackMetadata']['Item']??[];$meta=[];foreach($items as $item)if(isset($item['Name']))$meta[$item['Name']]=$item['Value']??null;
+$q=$pdo->prepare("SELECT * FROM payments WHERE provider='mpesa' AND provider_reference=? LIMIT 1");$q->execute([$checkout]);$payment=$q->fetch();
+if($payment){if($resultCode===0&&(float)($meta['Amount']??0)===(float)$payment['amount_kes']&&(!isset($meta['PhoneNumber'])||(string)$meta['PhoneNumber']===(string)$payment['phone'])&&verify_mpesa_success($checkout))complete_payment($pdo,$payment['reference'],$checkout,(string)($meta['MpesaReceiptNumber']??''));elseif($resultCode!==0)payment_fail($pdo,$payment['reference'],(string)($callback['ResultDesc']??'M-Pesa payment failed'));}
+echo json_encode(['ResultCode'=>0,'ResultDesc'=>'Accepted']);
+
+function verify_mpesa_success(string $checkoutId): bool {
+    $key=env_value('MPESA_CONSUMER_KEY');$secret=env_value('MPESA_CONSUMER_SECRET');$shortcode=env_value('MPESA_SHORTCODE');$passkey=env_value('MPESA_PASSKEY');if(!$key||!$secret||!$shortcode||!$passkey)return false;
+    $base=env_value('MPESA_ENV','sandbox')==='production'?'https://api.safaricom.co.ke':'https://sandbox.safaricom.co.ke';$ch=curl_init($base.'/oauth/v1/generate?grant_type=client_credentials');curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_USERPWD=>$key.':'.$secret,CURLOPT_TIMEOUT=>15]);$tokenBody=curl_exec($ch);$tokenCode=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);$token=json_decode((string)$tokenBody,true)['access_token']??'';if(!$token||$tokenCode>=300)return false;
+    $timestamp=date('YmdHis');$payload=['BusinessShortCode'=>$shortcode,'Password'=>base64_encode($shortcode.$passkey.$timestamp),'Timestamp'=>$timestamp,'CheckoutRequestID'=>$checkoutId];$ch=curl_init($base.'/mpesa/stkpushquery/v1/query');curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$token,'Content-Type: application/json'],CURLOPT_POSTFIELDS=>json_encode($payload),CURLOPT_TIMEOUT=>20]);$raw=curl_exec($ch);$http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);$result=json_decode((string)$raw,true);return $http>=200&&$http<300&&isset($result['ResultCode'])&&(string)$result['ResultCode']==='0';
+}

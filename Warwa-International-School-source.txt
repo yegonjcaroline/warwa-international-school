@@ -1,0 +1,432 @@
+WARWA INTERNATIONAL SCHOOL - SOURCE CODE TEXT
+Copy each section into the file named in its heading.
+
+===== .env.example =====
+APP_URL=http://localhost/Warwa-International-School
+APP_ENV=local
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=warwa_school
+DB_USER=root
+DB_PASS=
+PAYSTACK_SECRET_KEY=sk_test_replace_me
+PAYSTACK_PUBLIC_KEY=pk_test_replace_me
+MPESA_ENV=sandbox
+MPESA_CONSUMER_KEY=replace_me
+MPESA_CONSUMER_SECRET=replace_me
+MPESA_SHORTCODE=174379
+MPESA_PASSKEY=replace_me
+MPESA_TRANSACTION_TYPE=CustomerPayBillOnline
+MPESA_CALLBACK_URL=https://your-ngrok-domain.ngrok-free.app/Warwa-International-School/callbacks/mpesa.php
+MAIL_FROM=portal@warwainternational.ac.ke
+SCHOOL_EMAIL=admin@warwainternational.ac.ke
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USERNAME=replace_me
+SMTP_PASSWORD=replace_me
+SMTP_ENCRYPTION=tls
+
+
+===== .gitignore =====
+/.env
+/.env.*
+!/.env.example
+/vendor/
+/node_modules/
+*.log
+/storage/*
+!/storage/.gitkeep
+
+
+===== .htaccess =====
+Options -Indexes
+<FilesMatch "^\.env(\..*)?$">
+  Require all denied
+</FilesMatch>
+<FilesMatch "^(composer\.(json|lock)|database\.sql|README\.md)$">
+  Require all denied
+</FilesMatch>
+
+
+===== composer.json =====
+{
+  "require": {
+    "phpmailer/phpmailer": "^6.9"
+  }
+}
+
+
+===== database.sql =====
+CREATE DATABASE IF NOT EXISTS warwa_school CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE warwa_school;
+CREATE TABLE IF NOT EXISTS users (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  full_name VARCHAR(150) NOT NULL,
+  email VARCHAR(190) NOT NULL UNIQUE,
+  phone VARCHAR(20) NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  role ENUM('student','admin') NOT NULL DEFAULT 'student',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_users_role (role), INDEX idx_users_created (created_at)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS courses (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  code VARCHAR(30) NOT NULL UNIQUE,
+  title VARCHAR(160) NOT NULL,
+  description TEXT NOT NULL,
+  duration VARCHAR(80) NOT NULL DEFAULT 'Self-paced',
+  status ENUM('active','archived') NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS payments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  course_id INT UNSIGNED NOT NULL,
+  provider ENUM('paystack','mpesa') NOT NULL,
+  reference VARCHAR(100) NOT NULL UNIQUE,
+  provider_reference VARCHAR(120) NULL,
+  provider_transaction VARCHAR(120) NULL,
+  amount_kes DECIMAL(10,2) NOT NULL DEFAULT 5.00,
+  phone VARCHAR(20) NULL,
+  status ENUM('pending','success','failed') NOT NULL DEFAULT 'pending',
+  failure_reason VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  paid_at TIMESTAMP NULL,
+  UNIQUE KEY uq_provider_reference (provider, provider_reference),
+  INDEX idx_payments_status (status), INDEX idx_payments_user (user_id), INDEX idx_payments_created (created_at),
+  CONSTRAINT fk_payments_user FOREIGN KEY (user_id) REFERENCES users(id),
+  CONSTRAINT fk_payments_course FOREIGN KEY (course_id) REFERENCES courses(id)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS enrollments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  course_id INT UNSIGNED NOT NULL,
+  payment_id BIGINT UNSIGNED NOT NULL,
+  enrolled_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_user_course (user_id, course_id),
+  CONSTRAINT fk_enroll_user FOREIGN KEY (user_id) REFERENCES users(id),
+  CONSTRAINT fk_enroll_course FOREIGN KEY (course_id) REFERENCES courses(id),
+  CONSTRAINT fk_enroll_payment FOREIGN KEY (payment_id) REFERENCES payments(id)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS password_resets (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  otp_hash VARCHAR(255) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  consumed_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_reset_user (user_id, expires_at),
+  CONSTRAINT fk_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+ALTER TABLE payments ALTER COLUMN amount_kes SET DEFAULT 5.00;
+INSERT IGNORE INTO courses (code, title, description, duration) VALUES
+('WIS-101','Digital Literacy','Build practical confidence with computers, the internet and everyday productivity tools.','4 weeks'),
+('WIS-201','Entrepreneurship Essentials','Shape a business idea, understand customers and learn the basics of sustainable growth.','6 weeks'),
+('WIS-110','Introduction to Data Skills','Work with spreadsheets, understand data quality and communicate useful insights.','5 weeks');
+
+
+===== index.php =====
+<?php
+require_once __DIR__ . '/config/app.php';
+require_once __DIR__ . '/includes/layout.php';
+if (current_user()) redirect(current_user()['role'] === 'admin' ? 'admin/dashboard.php' : 'student/dashboard.php');
+start_page('Welcome');
+?>
+<section class="hero-panel"><p class="eyebrow !text-[#d8bd74]">WARWA INTERNATIONAL SCHOOL</p><h1 class="mt-4 max-w-2xl text-3xl font-extrabold leading-tight text-white sm:text-4xl">A confident start to your next chapter.</h1><p class="mt-4 max-w-xl text-sm leading-7 text-slate-200">Explore practical courses, build valuable skills and learn at your own pace. Your course enrollment is just KSh 5.</p><div class="mt-7 flex flex-wrap gap-3"><a class="btn-primary !bg-[#137c78]" href="<?= e(app_url('register.php')) ?>">Create student account</a><a class="btn-secondary" href="<?= e(app_url('courses.php')) ?>">Browse courses</a></div><div class="mt-8 flex gap-7 text-xs text-slate-200"><span><b class="kpi-accent">01</b> Simple enrollment</span><span><b class="kpi-accent">02</b> Secure payments</span></div></section>
+<section class="mt-9"><div class="mb-4 flex items-end justify-between"><div><p class="eyebrow">LEARNING OPPORTUNITIES</p><h2 class="card-title mt-1">Featured courses</h2></div><a class="text-sm font-bold text-teal-700" href="<?= e(app_url('courses.php')) ?>">View all →</a></div>
+<div class="grid gap-4 md:grid-cols-3"><?php require_once __DIR__ . '/config/database.php'; foreach ($pdo->query("SELECT * FROM courses WHERE status='active' ORDER BY id LIMIT 3") as $course): ?><article class="card course-card"><span class="course-code"><?= e($course['code']) ?></span><h3 class="mt-3 text-lg font-bold text-navy-900"><?= e($course['title']) ?></h3><p class="mt-2 flex-1 text-sm leading-6 text-slate-600"><?= e($course['description']) ?></p><div class="mt-4 flex justify-between border-t border-slate-100 pt-3 text-xs text-slate-500"><span><?= e($course['duration']) ?></span><span>Enrollment KSh 5</span></div></article><?php endforeach ?></div></section>
+<?php end_page(); ?>
+
+
+===== register.php =====
+<?php
+require_once __DIR__ . '/config/database.php'; require_once __DIR__ . '/includes/layout.php'; require_once __DIR__ . '/includes/notifications.php';
+if (current_user()) redirect('student/dashboard.php');
+$error='';
+if ($_SERVER['REQUEST_METHOD']==='POST') {
+    verify_csrf(); $name=trim($_POST['full_name']??''); $email=filter_var(trim($_POST['email']??''),FILTER_VALIDATE_EMAIL); $phone=preg_replace('/\s+/', '',trim($_POST['phone']??'')); $password=$_POST['password']??'';
+    if ($name===''||mb_strlen($name)>150||!$email||strlen($password)<10) $error='Enter your name and a valid email. Your password must be at least 10 characters.';
+    else { try { $stmt=$pdo->prepare("INSERT INTO users(full_name,email,phone,password_hash,role) VALUES(?,?,?,?,'student')"); $stmt->execute([$name,$email,$phone?:null,password_hash($password,PASSWORD_DEFAULT)]); $newId=(int)$pdo->lastInsertId(); notify_parties($pdo,$newId,'Welcome to Warwa International School',"Hello {$name},\n\nYour student account is ready. Browse available courses and enroll for KSh 5.\n\nWarwa International School"); session_regenerate_id(true); $_SESSION['user']=['id'=>$newId,'full_name'=>$name,'email'=>$email,'role'=>'student']; $_SESSION['csrf_token']=bin2hex(random_bytes(32)); redirect('student/dashboard.php'); }
+        catch(PDOException $e){ if($e->getCode()==='23000')$error='An account with that email already exists.'; else throw $e; } }
+}
+start_page('Create your account'); ?>
+<section class="card auth-card"><p class="eyebrow">STUDENT ENROLMENT</p><h1 class="card-title mt-2 text-2xl">Create your account</h1><p class="muted mt-2">Join Warwa International School and start learning.</p><?php if($error): ?><div class="alert alert-error mt-4"><?= e($error) ?></div><?php endif ?><form method="post" class="mt-6 space-y-4"><?= csrf_field() ?><div><label class="field-label" for="full_name">Full name</label><input class="field" id="full_name" name="full_name" required maxlength="150" autocomplete="name" value="<?= e($_POST['full_name']??'') ?>"></div><div><label class="field-label" for="email">Email address</label><input class="field" id="email" name="email" type="email" required autocomplete="email" value="<?= e($_POST['email']??'') ?>"></div><div><label class="field-label" for="phone">Phone number <span class="font-normal text-slate-400">(optional)</span></label><input class="field" id="phone" name="phone" type="tel" autocomplete="tel" placeholder="07xx xxx xxx" value="<?= e($_POST['phone']??'') ?>"></div><div><label class="field-label" for="password">Password</label><div class="password-wrap"><input class="field" id="password" name="password" type="password" required minlength="10" autocomplete="new-password"><button type="button" class="eye-toggle" data-password-toggle="password" aria-label="Show password"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div><p class="mt-1 text-[11px] text-slate-400">Use at least 10 characters.</p></div><button class="btn-primary w-full">Create account</button></form><p class="mt-5 text-center text-sm text-slate-500">Already registered? <a class="font-bold text-teal-700" href="<?= e(app_url('login.php')) ?>">Sign in</a></p></section><?php end_page(); ?>
+
+
+===== login.php =====
+<?php
+require_once __DIR__ . '/config/database.php'; require_once __DIR__ . '/includes/layout.php';
+if (current_user()) redirect(current_user()['role']==='admin'?'admin/dashboard.php':'student/dashboard.php');
+$error=''; if($_SERVER['REQUEST_METHOD']==='POST'){ verify_csrf(); $email=filter_var(trim($_POST['email']??''),FILTER_VALIDATE_EMAIL); $password=$_POST['password']??''; $stmt=$pdo->prepare('SELECT id,full_name,email,password_hash,role,is_active FROM users WHERE email=? LIMIT 1'); $stmt->execute([$email?:'']); $user=$stmt->fetch(); if(!$user||!password_verify($password,$user['password_hash'])||!(int)$user['is_active'])$error='Email or password is incorrect.'; else {session_regenerate_id(true);$_SESSION['csrf_token']=bin2hex(random_bytes(32));$_SESSION['user']=['id'=>(int)$user['id'],'full_name'=>$user['full_name'],'email'=>$user['email'],'role'=>$user['role']];redirect($user['role']==='admin'?'admin/dashboard.php':'student/dashboard.php');}}
+start_page('Sign in'); ?><section class="card auth-card"><p class="eyebrow">PORTAL ACCESS</p><h1 class="card-title mt-2 text-2xl">Welcome back</h1><p class="muted mt-2">Sign in to continue to your Warwa account.</p><?php if($error): ?><div class="alert alert-error mt-4"><?= e($error) ?></div><?php endif ?><form method="post" class="mt-6 space-y-4"><?= csrf_field() ?><div><label class="field-label" for="email">Email address</label><input class="field" id="email" name="email" type="email" required autocomplete="email" value="<?= e($_POST['email']??'') ?>"></div><div><div class="mb-1 flex justify-between"><label class="field-label mb-0" for="password">Password</label><a class="text-xs font-bold text-teal-700" href="<?= e(app_url('forgot-password.php')) ?>">Forgot password?</a></div><div class="password-wrap"><input class="field" id="password" name="password" type="password" required autocomplete="current-password"><button type="button" class="eye-toggle" data-password-toggle="password" aria-label="Show password"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div><button class="btn-primary w-full">Sign in</button></form><p class="mt-5 text-center text-sm text-slate-500">New to Warwa? <a class="font-bold text-teal-700" href="<?= e(app_url('register.php')) ?>">Create an account</a></p></section><?php end_page(); ?>
+
+
+===== logout.php =====
+<?php
+require_once __DIR__ . '/config/app.php'; if($_SERVER['REQUEST_METHOD']!=='POST'){http_response_code(405);exit('Method not allowed.');} verify_csrf(); $_SESSION=[]; if(ini_get('session.use_cookies')){ $params=session_get_cookie_params(); setcookie(session_name(),'',time()-42000,$params['path'],$params['domain'],$params['secure'],$params['httponly']); } session_destroy(); header('Location: '.app_url('login.php')); exit;
+
+
+===== forgot-password.php =====
+<?php
+require_once __DIR__ . '/config/database.php'; require_once __DIR__ . '/includes/layout.php'; require_once __DIR__ . '/includes/notifications.php';
+$sent=false; if($_SERVER['REQUEST_METHOD']==='POST'){verify_csrf();$email=filter_var(trim($_POST['email']??''),FILTER_VALIDATE_EMAIL);if($email){$q=$pdo->prepare("SELECT id,full_name,email FROM users WHERE email=? AND is_active=1");$q->execute([$email]);$u=$q->fetch();if($u){$code=(string)random_int(100000,999999);$pdo->prepare('INSERT INTO password_resets(user_id,otp_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 10 MINUTE))')->execute([$u['id'],password_hash($code,PASSWORD_DEFAULT)]);$body="Hello {$u['full_name']},\n\nYour Warwa password reset code is: {$code}\n\nIt expires in 10 minutes. If you did not request this, you can ignore this message.";send_notice($u['email'],'Your password reset code',$body);} }$sent=true;}
+start_page('Reset password'); ?><section class="card auth-card"><p class="eyebrow">ACCOUNT RECOVERY</p><h1 class="card-title mt-2 text-2xl">Forgot your password?</h1><p class="muted mt-2">We’ll email a one-time code that expires after 10 minutes.</p><?php if($sent): ?><div class="alert alert-success mt-4">If an active account uses that email, a reset code has been sent.</div><form method="get" action="<?= e(app_url('reset-password.php')) ?>" class="mt-5 space-y-4"><div><label class="field-label">Email address</label><input class="field" name="email" type="email" required value="<?= e($_POST['email']??'') ?>"></div><div><label class="field-label">6-digit code</label><input class="field otp-box" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></div><button class="btn-primary w-full">Continue</button></form><?php else: ?><form method="post" class="mt-6 space-y-4"><?= csrf_field() ?><div><label class="field-label">Email address</label><input class="field" name="email" type="email" required autocomplete="email"></div><button class="btn-primary w-full">Send reset code</button></form><?php endif ?><p class="mt-5 text-center text-sm"><a class="font-bold text-teal-700" href="<?= e(app_url('login.php')) ?>">Back to sign in</a></p></section><?php end_page(); ?>
+
+
+===== reset-password.php =====
+<?php
+require_once __DIR__ . '/config/database.php'; require_once __DIR__ . '/includes/layout.php';
+$email=filter_var(trim($_POST['email']??$_GET['email']??''),FILTER_VALIDATE_EMAIL);$code=preg_replace('/\D/','',(string)($_POST['code']??$_GET['code']??''));$error='';$valid=false;$resetId=0;
+if($email&&preg_match('/^\d{6}$/',$code)){$q=$pdo->prepare('SELECT pr.id,pr.otp_hash FROM password_resets pr JOIN users u ON u.id=pr.user_id WHERE u.email=? AND pr.consumed_at IS NULL AND pr.expires_at>NOW() ORDER BY pr.id DESC LIMIT 1');$q->execute([$email]);$row=$q->fetch();if($row&&password_verify($code,$row['otp_hash'])){$valid=true;$resetId=(int)$row['id'];}else $error='That code is invalid or expired. Request a new one.';}
+if($_SERVER['REQUEST_METHOD']==='POST'){verify_csrf();$password=$_POST['password']??'';$confirm=$_POST['confirm_password']??'';if(!$email||!preg_match('/^\d{6}$/',$code))$error='Enter your email and valid reset code.';elseif(strlen($password)<10)$error='Use a password with at least 10 characters.';elseif($password!==$confirm)$error='The passwords do not match.';else{$pdo->beginTransaction();try{$q=$pdo->prepare('SELECT pr.id,pr.otp_hash,pr.user_id FROM password_resets pr JOIN users u ON u.id=pr.user_id WHERE u.email=? AND pr.consumed_at IS NULL AND pr.expires_at>NOW() ORDER BY pr.id DESC LIMIT 1 FOR UPDATE');$q->execute([$email]);$row=$q->fetch();if(!$row||!password_verify($code,$row['otp_hash']))throw new RuntimeException('That code is invalid or expired. Request a new one.');$pdo->prepare('UPDATE users SET password_hash=? WHERE id=?')->execute([password_hash($password,PASSWORD_DEFAULT),$row['user_id']]);$pdo->prepare('UPDATE password_resets SET consumed_at=NOW() WHERE user_id=? AND consumed_at IS NULL')->execute([$row['user_id']]);$pdo->commit();flash('Password updated. Sign in with your new password.');redirect('login.php');}catch(Throwable $e){$pdo->rollBack();$error=$e instanceof RuntimeException?$e->getMessage():'Could not update the password.';}}}
+if(!$valid&&$_SERVER['REQUEST_METHOD']!=='POST')$error='Open this page with the email and reset code from your message.';
+start_page('Choose a new password'); ?><section class="card auth-card"><p class="eyebrow">ACCOUNT RECOVERY</p><h1 class="card-title mt-2 text-2xl">Choose a new password</h1><?php if($error): ?><div class="alert alert-error mt-4"><?= e($error) ?></div><?php endif ?><?php if($valid||$_SERVER['REQUEST_METHOD']==='POST'): ?><form method="post" class="mt-6 space-y-4"><?= csrf_field() ?><input type="hidden" name="email" value="<?= e($email?:'') ?>"><input type="hidden" name="code" value="<?= e($code) ?>"><div><label class="field-label" for="password">New password</label><div class="password-wrap"><input class="field" id="password" name="password" type="password" minlength="10" required><button type="button" class="eye-toggle" data-password-toggle="password" aria-label="Show password"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div><div><label class="field-label" for="confirm_password">Confirm new password</label><div class="password-wrap"><input class="field" id="confirm_password" name="confirm_password" type="password" minlength="10" required><button type="button" class="eye-toggle" data-password-toggle="confirm_password" aria-label="Show password"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div><button class="btn-primary w-full">Update password</button></form><?php endif ?></section><?php end_page(); ?>
+
+
+===== setup-admin.php =====
+<?php
+require_once __DIR__.'/config/database.php';require_once __DIR__.'/includes/layout.php';$adminCount=(int)$pdo->query("SELECT COUNT(*) FROM users WHERE role='admin'")->fetchColumn();$error='';
+if($_SERVER['REQUEST_METHOD']==='POST'&&$adminCount===0){verify_csrf();$name=trim($_POST['full_name']??'');$email=filter_var(trim($_POST['email']??''),FILTER_VALIDATE_EMAIL);$password=$_POST['password']??'';if($name===''||!$email||strlen($password)<12)$error='Provide a name, valid email and password of at least 12 characters.';else{$q=$pdo->prepare("INSERT INTO users(full_name,email,password_hash,role) VALUES(?,?,?,'admin')");$q->execute([$name,$email,password_hash($password,PASSWORD_DEFAULT)]);flash('Administrator account created. Sign in to manage the school.');redirect('login.php');}}
+start_page('Set up administrator'); ?><section class="card auth-card"><p class="eyebrow">FIRST-TIME SETUP</p><h1 class="card-title mt-2 text-2xl">Create the school administrator</h1><?php if($adminCount>0): ?><div class="alert alert-error mt-5">An administrator already exists. This setup page is now locked.</div><?php else: ?><p class="muted mt-2">This page creates the first administrator account. It can only be used while the database has no administrator.</p><?php if($error): ?><div class="alert alert-error mt-4"><?= e($error) ?></div><?php endif ?><form method="post" class="mt-5 space-y-4"><?= csrf_field() ?><div><label class="field-label">Full name</label><input class="field" name="full_name" required></div><div><label class="field-label">Email address</label><input class="field" name="email" type="email" required></div><div><label class="field-label">Password (12 characters minimum)</label><div class="password-wrap"><input class="field" id="password" name="password" type="password" minlength="12" required><button type="button" class="eye-toggle" data-password-toggle="password" aria-label="Show password"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div><button class="btn-primary w-full">Create administrator</button></form><?php endif ?></section><?php end_page(); ?>
+
+
+===== courses.php =====
+<?php
+require_once __DIR__ . '/config/database.php';require_once __DIR__ . '/includes/layout.php';
+$courses=$pdo->query("SELECT c.*,(SELECT COUNT(*) FROM enrollments e WHERE e.course_id=c.id) AS learners FROM courses c WHERE c.status='active' ORDER BY c.title")->fetchAll();start_page('Browse courses','courses'); ?>
+<div class="mb-5 flex flex-wrap items-end justify-between gap-3"><p class="muted max-w-xl">Choose a course that fits your goals. Pay the five-shilling enrollment fee to unlock your learning space.</p><span class="badge badge-pending">Enrollment KSh 5.00</span></div><div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"><?php foreach($courses as $course): ?><article class="card course-card"><div class="flex items-center justify-between"><span class="course-code"><?= e($course['code']) ?></span><span class="text-xs text-slate-400"><?= (int)$course['learners'] ?> learners</span></div><h2 class="mt-4 text-lg font-bold text-slate-800"><?= e($course['title']) ?></h2><p class="mt-2 flex-1 text-sm leading-6 text-slate-600"><?= e($course['description']) ?></p><div class="mt-4 flex justify-between border-t border-slate-100 pt-3 text-xs text-slate-500"><span><?= e($course['duration']) ?></span><span>One-time KSh 5</span></div><?php if(current_user()&&current_user()['role']==='student'): ?><a class="btn-primary mt-4 w-full" href="<?= e(app_url('student/dashboard.php?course='.(int)$course['id'])) ?>">View course & enroll</a><?php elseif(!current_user()): ?><a class="btn-primary mt-4 w-full" href="<?= e(app_url('login.php')) ?>">Sign in to enroll</a><?php endif ?></article><?php endforeach ?></div><?php if(!$courses): ?><div class="card muted">No courses are available at the moment.</div><?php endif ?><?php end_page(); ?>
+
+
+===== enroll.php =====
+<?php
+require_once __DIR__ . '/config/database.php';require_once __DIR__ . '/config/app.php';require_once __DIR__ . '/includes/payments.php';
+require_login('student');if($_SERVER['REQUEST_METHOD']!=='POST'){http_response_code(405);exit('Method not allowed.');}verify_csrf();
+$courseId=filter_var($_POST['course_id']??null,FILTER_VALIDATE_INT);$provider=$_POST['provider']??'';$phone=preg_replace('/\D+/','',(string)($_POST['phone']??''));
+if(!$courseId||!in_array($provider,['paystack','mpesa'],true)){flash('Choose a course and payment method.','error');redirect('courses.php');}
+$q=$pdo->prepare("SELECT id,title FROM courses WHERE id=? AND status='active'");$q->execute([$courseId]);$course=$q->fetch();if(!$course){flash('This course is no longer available.','error');redirect('courses.php');}
+$q=$pdo->prepare('SELECT id FROM enrollments WHERE user_id=? AND course_id=?');$q->execute([current_user()['id'],$courseId]);if($q->fetch()){flash('You are already enrolled in this course.');redirect('student/learning.php');}
+if($provider==='mpesa'){if(preg_match('/^0[17]\d{8}$/',$phone))$phone='254'.substr($phone,1);elseif(preg_match('/^[17]\d{8}$/',$phone))$phone='254'.$phone;if(!preg_match('/^254[17]\d{8}$/',$phone)){flash('Enter a valid Kenyan mobile number for M-Pesa.','error');redirect('student/dashboard.php?course='.$courseId);}}
+$reference='WIS-'.strtoupper(bin2hex(random_bytes(10)));$pdo->prepare('INSERT INTO payments(user_id,course_id,provider,reference,amount_kes,phone) VALUES(?,?,?,?,5.00,?)')->execute([current_user()['id'],$courseId,$provider,$reference,$provider==='mpesa'?$phone:null]);
+if($provider==='paystack'){
+    $secret=env_value('PAYSTACK_SECRET_KEY');if($secret===''||str_contains($secret,'replace_me')){payment_fail($pdo,$reference,'Paystack is not configured');flash('Paystack is not configured. Set PAYSTACK_SECRET_KEY in .env.','error');redirect('student/dashboard.php?course='.$courseId);}
+    $ch=curl_init('https://api.paystack.co/transaction/initialize');curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$secret,'Content-Type: application/json'],CURLOPT_POSTFIELDS=>json_encode(['email'=>current_user()['email'],'amount'=>500,'currency'=>'KES','reference'=>$reference,'callback_url'=>app_url('callbacks/paystack.php')]),CURLOPT_TIMEOUT=>25]);$raw=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);$err=curl_error($ch);curl_close($ch);$data=json_decode((string)$raw,true);
+    if($status<200||$status>=300||empty($data['data']['authorization_url'])){error_log('Paystack initialize: '.$err.' '.$raw);payment_fail($pdo,$reference,'Paystack initialization failed');flash('Paystack could not start the payment. Check your sandbox credentials and try again.','error');redirect('student/dashboard.php?course='.$courseId);}header('Location: '.$data['data']['authorization_url']);exit;
+}
+$key=env_value('MPESA_CONSUMER_KEY');$secret=env_value('MPESA_CONSUMER_SECRET');$shortcode=env_value('MPESA_SHORTCODE');$passkey=env_value('MPESA_PASSKEY');$callback=env_value('MPESA_CALLBACK_URL');
+if(!$key||!$secret||!$shortcode||!$passkey||!$callback||str_contains($key,'replace_me')){payment_fail($pdo,$reference,'M-Pesa is not configured');flash('M-Pesa is not configured. Add Daraja sandbox keys and a public ngrok callback URL to .env.','error');redirect('student/dashboard.php?course='.$courseId);}
+$base=env_value('MPESA_ENV','sandbox')==='production'?'https://api.safaricom.co.ke':'https://sandbox.safaricom.co.ke';$ch=curl_init($base.'/oauth/v1/generate?grant_type=client_credentials');curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_USERPWD=>$key.':'.$secret,CURLOPT_TIMEOUT=>20]);$tokenRaw=curl_exec($ch);$tokenCode=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);$token=json_decode((string)$tokenRaw,true)['access_token']??'';
+if(!$token||$tokenCode>=300){payment_fail($pdo,$reference,'M-Pesa authentication failed');flash('M-Pesa could not connect. Check your Daraja sandbox credentials.','error');redirect('student/dashboard.php?course='.$courseId);}
+$timestamp=date('YmdHis');$password=base64_encode($shortcode.$passkey.$timestamp);$payload=['BusinessShortCode'=>$shortcode,'Password'=>$password,'Timestamp'=>$timestamp,'TransactionType'=>env_value('MPESA_TRANSACTION_TYPE','CustomerPayBillOnline'),'Amount'=>5,'PartyA'=>$phone,'PartyB'=>$shortcode,'PhoneNumber'=>$phone,'CallBackURL'=>$callback,'AccountReference'=>$reference,'TransactionDesc'=>'Warwa course enrollment'];
+$ch=curl_init($base.'/mpesa/stkpush/v1/processrequest');curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$token,'Content-Type: application/json'],CURLOPT_POSTFIELDS=>json_encode($payload),CURLOPT_TIMEOUT=>25]);$raw=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);$data=json_decode((string)$raw,true);
+if($status<200||$status>=300||empty($data['CheckoutRequestID'])){payment_fail($pdo,$reference,'M-Pesa STK push failed');error_log('M-Pesa STK: '.$raw);flash('M-Pesa could not send the payment prompt. Check the number and try again.','error');redirect('student/dashboard.php?course='.$courseId);}
+$pdo->prepare("UPDATE payments SET provider_reference=? WHERE reference=? AND status='pending'")->execute([$data['CheckoutRequestID'],$reference]);flash('M-Pesa prompt sent. Approve KSh 5 on your phone; Safaricom will confirm the result.');redirect('student/payments.php');
+
+
+===== config/app.php =====
+<?php
+declare(strict_types=1);
+function load_env(string $file): void
+{
+    if (!is_file($file)) return;
+    foreach (file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) continue;
+        [$key, $value] = explode('=', $line, 2);
+        $key = trim($key); $value = trim(trim($value), "\"'");
+        if ($key !== '' && getenv($key) === false) putenv($key . '=' . $value);
+    }
+}
+load_env(dirname(__DIR__) . '/.env');
+function env_value(string $key, string $default = ''): string { $value = getenv($key); return $value === false ? $default : $value; }
+function app_url(string $path = ''): string { return rtrim(env_value('APP_URL', 'http://localhost/Warwa-International-School'), '/') . '/' . ltrim($path, '/'); }
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_set_cookie_params(['httponly' => true, 'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off', 'samesite' => 'Lax']);
+    session_start();
+}
+if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+function e(mixed $value): string { return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
+function csrf_field(): string { return '<input type="hidden" name="csrf_token" value="' . e($_SESSION['csrf_token']) . '">'; }
+function verify_csrf(): void {
+    $token = $_POST['csrf_token'] ?? '';
+    if (!is_string($token) || !hash_equals($_SESSION['csrf_token'] ?? '', $token)) { http_response_code(419); exit('Your session expired. Go back and try again.'); }
+}
+function current_user(): ?array { return $_SESSION['user'] ?? null; }
+function require_login(?string $role = null): void {
+    $user = current_user();
+    if (!$user) { header('Location: ' . app_url('login.php')); exit; }
+    if ($role !== null && $user['role'] !== $role) { http_response_code(403); exit('You do not have permission to view this page.'); }
+    if (isset($GLOBALS['pdo'])) { $check=$GLOBALS['pdo']->prepare('SELECT is_active FROM users WHERE id=?'); $check->execute([(int)$user['id']]); if (!(int)$check->fetchColumn()) { $_SESSION=[]; session_destroy(); header('Location: ' . app_url('login.php')); exit; } }
+}
+function flash(string $message, string $type = 'success'): void { $_SESSION['flash'] = ['message' => $message, 'type' => $type]; }
+function redirect(string $path): never { header('Location: ' . app_url($path)); exit; }
+
+
+===== config/database.php =====
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/app.php';
+try {
+    $dsn = 'mysql:host=' . env_value('DB_HOST', '127.0.0.1') . ';port=' . env_value('DB_PORT', '3306') . ';dbname=' . env_value('DB_NAME', 'warwa_school') . ';charset=utf8mb4';
+    $pdo = new PDO($dsn, env_value('DB_USER', 'root'), env_value('DB_PASS'), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false]);
+} catch (PDOException $error) {
+    error_log('Database connection failed: ' . $error->getMessage()); http_response_code(500);
+    exit('Database connection failed. Import database.sql and check your .env settings.');
+}
+
+
+===== includes/layout.php =====
+<?php
+require_once dirname(__DIR__) . '/config/app.php';
+function start_page(string $title, string $active = ''): void {
+    $user = current_user(); $isAdmin = $user && $user['role'] === 'admin';
+    $nav = $isAdmin ? [['Overview','admin/dashboard.php','dashboard'],['Students','admin/students.php','students'],['Courses','admin/courses.php','courses'],['Payments','admin/payments.php','payments']] : [['Overview','student/dashboard.php','dashboard'],['Browse courses','courses.php','courses'],['My learning','student/learning.php','learning'],['Payments','student/payments.php','payments']];
+    $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
+    ?><!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title><?= e($title) ?> | Warwa International School</title><script src="https://cdn.tailwindcss.com"></script><link rel="stylesheet" href="<?= e(app_url('assets/css/style.css')) ?>"></head><body class="min-h-screen bg-mist text-ink">
+    <header class="site-header"><div class="mx-auto flex max-w-7xl items-center justify-between px-5 py-4"><a class="brand" href="<?= e(app_url($user ? ($isAdmin ? 'admin/dashboard.php' : 'student/dashboard.php') : 'index.php')) ?>"><span class="brand-mark">W</span><span><b>WARWA</b><small>INTERNATIONAL SCHOOL</small></span></a><div class="flex items-center gap-4"><span class="hidden text-sm text-slate-200 sm:block"><?= e($user['full_name'] ?? '') ?></span><?php if ($user): ?><form method="post" action="<?= e(app_url('logout.php')) ?>"><?= csrf_field() ?><button class="quiet-button">Sign out</button></form><?php else: ?><a class="quiet-button" href="<?= e(app_url('login.php')) ?>">Sign in</a><?php endif ?></div></div></header>
+    <?php if ($user): ?><div class="mx-auto grid max-w-7xl gap-6 px-4 py-6 md:grid-cols-[220px_1fr] lg:px-6"><aside class="sidebar"><p class="nav-label"><?= $isAdmin ? 'ADMINISTRATION' : 'STUDENT PORTAL' ?></p><nav><?php foreach ($nav as [$label,$href,$key]): ?><a class="side-link <?= $active===$key?'is-active':'' ?>" href="<?= e(app_url($href)) ?>"><span class="side-dot"></span><?= e($label) ?></a><?php endforeach ?></nav><div class="sidebar-note"><span class="gold-line"></span><p>Learn with purpose.<br><b>Grow with confidence.</b></p></div></aside><main class="min-w-0"><div class="mb-5"><p class="eyebrow"><?= $isAdmin ? 'SCHOOL MANAGEMENT' : 'YOUR LEARNING SPACE' ?></p><h1 class="page-title"><?= e($title) ?></h1></div><?php if ($flash): ?><div class="alert <?= $flash['type']==='error'?'alert-error':'alert-success' ?>"><?= e($flash['message']) ?></div><?php endif ?>
+    <?php else: ?><main class="mx-auto min-h-[75vh] max-w-7xl px-4 py-10 lg:px-6"><?php if ($flash): ?><div class="alert <?= $flash['type']==='error'?'alert-error':'alert-success' ?> mb-5"><?= e($flash['message']) ?></div><?php endif ?><?php endif;
+}
+function end_page(): void { if (current_user()) echo '</main></div>'; else echo '</main>'; ?><footer class="site-footer"><div class="mx-auto flex max-w-7xl flex-col justify-between gap-2 px-5 py-6 sm:flex-row"><span>© <?= date('Y') ?> Warwa International School</span><span>Knowledge • Character • Opportunity</span></div></footer><script src="<?= e(app_url('assets/js/app.js')) ?>"></script></body></html><?php }
+
+
+===== includes/notifications.php =====
+<?php
+require_once dirname(__DIR__) . '/config/app.php';
+if (is_file(dirname(__DIR__) . '/vendor/autoload.php')) require_once dirname(__DIR__) . '/vendor/autoload.php';
+function send_notice(string $to, string $subject, string $message): bool {
+    $from = env_value('MAIL_FROM');
+    if ($from === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) return false;
+    if (env_value('SMTP_HOST') !== '' && is_file(dirname(__DIR__) . '/vendor/autoload.php')) {
+        require_once dirname(__DIR__) . '/vendor/autoload.php';
+        try {
+            $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+            $mail->isSMTP(); $mail->Host = env_value('SMTP_HOST'); $mail->Port = (int)env_value('SMTP_PORT', '587');
+            $mail->SMTPAuth = env_value('SMTP_USERNAME') !== ''; $mail->Username = env_value('SMTP_USERNAME'); $mail->Password = env_value('SMTP_PASSWORD');
+            if (env_value('SMTP_ENCRYPTION', 'tls') === 'ssl') $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS;
+            elseif (env_value('SMTP_ENCRYPTION', 'tls') === 'tls') $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->CharSet = 'UTF-8'; $mail->setFrom($from, 'Warwa International School'); $mail->addAddress($to); $mail->Subject = $subject; $mail->Body = $message;
+            return $mail->send();
+        } catch (Throwable $error) { error_log('School email delivery failed: ' . $error->getMessage()); return false; }
+    }
+    $headers = "From: Warwa International School <{$from}>\r\n" . "Reply-To: {$from}\r\n" . "Content-Type: text/plain; charset=UTF-8\r\n";
+    return @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $message, $headers);
+}
+function notify_parties(PDO $pdo, int $studentId, string $subject, string $message): void {
+    $stmt = $pdo->prepare("SELECT email FROM users WHERE id=? AND role='student'"); $stmt->execute([$studentId]); $student = $stmt->fetch();
+    $admin = env_value('SCHOOL_EMAIL');
+    if ($student) send_notice($student['email'], $subject, $message);
+    if ($admin !== '' && (!$student || strtolower($admin) !== strtolower($student['email']))) send_notice($admin, '[Warwa Portal] ' . $subject, $message);
+}
+
+
+===== includes/payments.php =====
+<?php
+require_once dirname(__DIR__) . '/config/database.php';
+require_once __DIR__ . '/notifications.php';
+function payment_fail(PDO $pdo, string $reference, string $reason): void {
+    $stmt=$pdo->prepare("UPDATE payments SET status='failed',failure_reason=? WHERE reference=? AND status='pending'");$stmt->execute([mb_substr($reason,0,250),$reference]);
+    if($stmt->rowCount()){$q=$pdo->prepare('SELECT p.user_id,u.full_name,c.title FROM payments p JOIN users u ON u.id=p.user_id JOIN courses c ON c.id=p.course_id WHERE p.reference=?');$q->execute([$reference]);$info=$q->fetch();if($info)notify_parties($pdo,(int)$info['user_id'],'Course payment was not completed',"Hello {$info['full_name']},\n\nThe KSh 5 payment for {$info['title']} was not confirmed. You can return to the course and try again.\nReference: {$reference}\n\nWarwa International School");}
+}
+function complete_payment(PDO $pdo, string $reference, string $providerReference, string $providerTransaction = ''): bool {
+    $pdo->beginTransaction();
+    try {
+        $stmt=$pdo->prepare('SELECT * FROM payments WHERE reference=? FOR UPDATE');$stmt->execute([$reference]);$payment=$stmt->fetch();
+        if(!$payment){$pdo->rollBack();return false;} if($payment['status']==='success'){$pdo->commit();return true;} if($payment['status']!=='pending'){$pdo->commit();return false;}
+        $pdo->prepare("UPDATE payments SET status='success',provider_reference=?,provider_transaction=?,paid_at=NOW(),failure_reason=NULL WHERE id=? AND status='pending'")->execute([$providerReference,$providerTransaction?:null,$payment['id']]);
+        $pdo->prepare('INSERT INTO enrollments(user_id,course_id,payment_id) VALUES(?,?,?) ON DUPLICATE KEY UPDATE payment_id=VALUES(payment_id)')->execute([$payment['user_id'],$payment['course_id'],$payment['id']]);
+        $pdo->commit();$q=$pdo->prepare('SELECT u.full_name,c.title FROM payments p JOIN users u ON u.id=p.user_id JOIN courses c ON c.id=p.course_id WHERE p.id=?');$q->execute([$payment['id']]);$info=$q->fetch();
+        if($info)notify_parties($pdo,(int)$payment['user_id'],'Course enrollment confirmed',"Hello {$info['full_name']},\n\nYour payment for {$info['title']} was confirmed. You are now enrolled.\nPayment reference: {$reference}\nAmount: KSh 5.00\n\nWarwa International School");return true;
+    } catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();error_log('Payment completion failed: '.$e->getMessage());return false;}
+}
+
+
+===== callbacks/paystack.php =====
+<?php
+require_once dirname(__DIR__).'/config/database.php';require_once dirname(__DIR__).'/includes/payments.php';
+$reference=trim((string)($_GET['reference']??''));if($reference===''){http_response_code(400);exit('Missing payment reference.');}$secret=env_value('PAYSTACK_SECRET_KEY');if($secret===''||str_contains($secret,'replace_me')){http_response_code(503);exit('Payment verification is not configured.');}
+$ch=curl_init('https://api.paystack.co/transaction/verify/'.rawurlencode($reference));curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$secret],CURLOPT_TIMEOUT=>20]);$raw=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);$result=json_decode((string)$raw,true);$transaction=$result['data']??[];
+$q=$pdo->prepare("SELECT * FROM payments WHERE reference=? AND provider='paystack'");$q->execute([$reference]);$payment=$q->fetch();$confirmed=$payment&&$status>=200&&$status<300&&($transaction['status']??'')==='success'&&($transaction['reference']??'')===$reference&&(int)($transaction['amount']??0)===500&&($transaction['currency']??'')==='KES';
+if($confirmed)complete_payment($pdo,$reference,(string)($transaction['id']??$reference));elseif($payment&&($transaction['status']??'')==='failed')payment_fail($pdo,$reference,'Paystack reported a failed payment');
+require_once dirname(__DIR__).'/config/app.php';if(current_user()&&$payment&&(int)$payment['user_id']===(int)current_user()['id']){flash($confirmed?'Payment verified. Your course is ready in My learning.':'Payment has not been confirmed. If your account was charged, allow a moment for the provider to update.',($transaction['status']??'')==='failed'?'error':'success');redirect('student/payments.php');}http_response_code(200);echo 'Payment verification received. You may return to Warwa International School.';
+
+
+===== callbacks/mpesa.php =====
+<?php
+require_once dirname(__DIR__).'/config/database.php';require_once dirname(__DIR__).'/includes/payments.php';header('Content-Type: application/json');
+$body=json_decode(file_get_contents('php://input'),true);$callback=$body['Body']['stkCallback']??null;if(!$callback){echo json_encode(['ResultCode'=>0,'ResultDesc'=>'Accepted']);exit;}
+$checkout=(string)($callback['CheckoutRequestID']??'');$resultCode=(int)($callback['ResultCode']??-1);$items=$callback['CallbackMetadata']['Item']??[];$meta=[];foreach($items as $item)if(isset($item['Name']))$meta[$item['Name']]=$item['Value']??null;
+$q=$pdo->prepare("SELECT * FROM payments WHERE provider='mpesa' AND provider_reference=? LIMIT 1");$q->execute([$checkout]);$payment=$q->fetch();
+if($payment){if($resultCode===0&&(float)($meta['Amount']??0)===(float)$payment['amount_kes']&&(!isset($meta['PhoneNumber'])||(string)$meta['PhoneNumber']===(string)$payment['phone'])&&verify_mpesa_success($checkout))complete_payment($pdo,$payment['reference'],$checkout,(string)($meta['MpesaReceiptNumber']??''));elseif($resultCode!==0)payment_fail($pdo,$payment['reference'],(string)($callback['ResultDesc']??'M-Pesa payment failed'));}
+echo json_encode(['ResultCode'=>0,'ResultDesc'=>'Accepted']);
+
+function verify_mpesa_success(string $checkoutId): bool {
+    $key=env_value('MPESA_CONSUMER_KEY');$secret=env_value('MPESA_CONSUMER_SECRET');$shortcode=env_value('MPESA_SHORTCODE');$passkey=env_value('MPESA_PASSKEY');if(!$key||!$secret||!$shortcode||!$passkey)return false;
+    $base=env_value('MPESA_ENV','sandbox')==='production'?'https://api.safaricom.co.ke':'https://sandbox.safaricom.co.ke';$ch=curl_init($base.'/oauth/v1/generate?grant_type=client_credentials');curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_USERPWD=>$key.':'.$secret,CURLOPT_TIMEOUT=>15]);$tokenBody=curl_exec($ch);$tokenCode=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);$token=json_decode((string)$tokenBody,true)['access_token']??'';if(!$token||$tokenCode>=300)return false;
+    $timestamp=date('YmdHis');$payload=['BusinessShortCode'=>$shortcode,'Password'=>base64_encode($shortcode.$passkey.$timestamp),'Timestamp'=>$timestamp,'CheckoutRequestID'=>$checkoutId];$ch=curl_init($base.'/mpesa/stkpushquery/v1/query');curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$token,'Content-Type: application/json'],CURLOPT_POSTFIELDS=>json_encode($payload),CURLOPT_TIMEOUT=>20]);$raw=curl_exec($ch);$http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);$result=json_decode((string)$raw,true);return $http>=200&&$http<300&&isset($result['ResultCode'])&&(string)$result['ResultCode']==='0';
+}
+
+
+===== student/dashboard.php =====
+<?php
+require_once dirname(__DIR__).'/config/database.php';require_once dirname(__DIR__).'/includes/layout.php';require_login('student');$uid=(int)current_user()['id'];
+$q=$pdo->prepare('SELECT COUNT(*) FROM enrollments WHERE user_id=?');$q->execute([$uid]);$enrolled=(int)$q->fetchColumn();$q=$pdo->prepare("SELECT COUNT(*) FROM payments WHERE user_id=? AND status='pending'");$q->execute([$uid]);$pending=(int)$q->fetchColumn();$q=$pdo->prepare('SELECT c.*,e.enrolled_at FROM enrollments e JOIN courses c ON c.id=e.course_id WHERE e.user_id=? ORDER BY e.enrolled_at DESC LIMIT 3');$q->execute([$uid]);$recent=$q->fetchAll();
+$courses=$pdo->query("SELECT * FROM courses WHERE status='active' ORDER BY title")->fetchAll();$selectedId=(int)($_GET['course']??0);$selected=null;foreach($courses as $c)if((int)$c['id']===$selectedId)$selected=$c;
+$q=$pdo->prepare('SELECT course_id FROM enrollments WHERE user_id=?');$q->execute([$uid]);$enrolledIds=array_map('intval',$q->fetchAll(PDO::FETCH_COLUMN));
+start_page('Student overview','dashboard'); ?>
+<section class="hero-panel mb-5"><p class="eyebrow !text-[#d8bd74]">WELCOME BACK</p><h2 class="mt-2 text-2xl font-extrabold text-white">Hello, <?= e(explode(' ',current_user()['full_name'])[0]) ?>.</h2><p class="mt-2 max-w-xl text-sm leading-6 text-slate-200">Your next opportunity starts with one good lesson. Continue learning or explore a course that moves you forward.</p><a class="btn-primary mt-5 !bg-[#137c78]" href="<?= e(app_url('courses.php')) ?>">Explore courses</a></section>
+<div class="mb-6 grid gap-4 sm:grid-cols-3"><div class="stat-card"><p class="stat-label">Courses enrolled</p><p class="stat-value"><?= $enrolled ?></p></div><div class="stat-card"><p class="stat-label">Payments awaiting confirmation</p><p class="stat-value"><?= $pending ?></p></div><div class="stat-card"><p class="stat-label">Enrollment fee</p><p class="stat-value">KSh 5</p></div></div>
+<?php if($selected): $isEnrolled=in_array((int)$selected['id'],$enrolledIds,true); ?><section class="card mb-6"><div class="flex flex-wrap justify-between gap-3"><div><span class="course-code"><?= e($selected['code']) ?></span><h2 class="card-title mt-2 text-xl"><?= e($selected['title']) ?></h2><p class="muted mt-2 max-w-2xl leading-6"><?= e($selected['description']) ?></p><p class="mt-3 text-xs text-slate-500">Duration: <?= e($selected['duration']) ?> · Enrollment fee: KSh 5.00</p></div><?php if($isEnrolled): ?><a class="btn-primary self-start" href="<?= e(app_url('student/learning.php')) ?>">Open course</a><?php endif ?></div><?php if(!$isEnrolled): ?><form method="post" action="<?= e(app_url('enroll.php')) ?>" class="mt-5 grid gap-4 border-t border-slate-100 pt-5 sm:grid-cols-[1fr_1fr_auto] sm:items-end"><?= csrf_field() ?><input type="hidden" name="course_id" value="<?= (int)$selected['id'] ?>"><div><label class="field-label" for="provider">Payment method</label><select class="field" id="provider" name="provider"><option value="mpesa">M-Pesa STK Push (KSh 5)</option><option value="paystack">Paystack (KSh 5)</option></select></div><div><label class="field-label" for="phone">M-Pesa phone <span class="font-normal text-slate-400">(if selected)</span></label><input class="field" id="phone" name="phone" type="tel" placeholder="07xx xxx xxx" value="<?= e(current_user()['phone']??'') ?>"></div><button class="btn-primary">Pay KSh 5 & enroll</button></form><?php endif ?></section><?php endif ?>
+<div class="mb-3 flex items-center justify-between"><h2 class="card-title">Available courses</h2><a class="text-sm font-bold text-teal-700" href="<?= e(app_url('courses.php')) ?>">Browse all →</a></div><div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"><?php foreach(array_slice($courses,0,3) as $course): ?><article class="card course-card"><span class="course-code"><?= e($course['code']) ?></span><h3 class="mt-3 text-lg font-bold text-slate-800"><?= e($course['title']) ?></h3><p class="mt-2 flex-1 text-sm leading-6 text-slate-600"><?= e($course['description']) ?></p><div class="mt-4 flex items-center justify-between border-t border-slate-100 pt-3"><span class="text-xs text-slate-500"><?= e($course['duration']) ?></span><?php if(in_array((int)$course['id'],$enrolledIds,true)): ?><a class="text-xs font-bold text-teal-700" href="<?= e(app_url('student/learning.php')) ?>">Enrolled · Open</a><?php else: ?><a class="text-xs font-bold text-teal-700" href="<?= e(app_url('student/dashboard.php?course='.(int)$course['id'])) ?>">Details & enroll →</a><?php endif ?></div></article><?php endforeach ?></div><?php if($recent): ?><section class="mt-7"><div class="mb-3 flex justify-between"><h2 class="card-title">Your learning</h2><a class="text-sm font-bold text-teal-700" href="<?= e(app_url('student/learning.php')) ?>">View all</a></div><div class="table-wrap"><table><thead><tr><th>Course</th><th>Code</th><th>Enrolled</th><th></th></tr></thead><tbody><?php foreach($recent as $r): ?><tr><td class="font-semibold text-slate-700"><?= e($r['title']) ?></td><td><?= e($r['code']) ?></td><td><?= e(date('M j, Y',strtotime($r['enrolled_at']))) ?></td><td><a class="font-bold text-teal-700" href="<?= e(app_url('student/learning.php')) ?>">Open</a></td></tr><?php endforeach ?></tbody></table></div></section><?php endif ?><?php end_page(); ?>
+
+
+===== student/learning.php =====
+<?php
+require_once dirname(__DIR__).'/config/database.php';require_once dirname(__DIR__).'/includes/layout.php';require_login('student');$q=$pdo->prepare('SELECT c.*,e.enrolled_at FROM enrollments e JOIN courses c ON c.id=e.course_id WHERE e.user_id=? ORDER BY e.enrolled_at DESC');$q->execute([current_user()['id']]);$courses=$q->fetchAll();start_page('My learning','learning'); ?>
+<?php if($courses): ?><div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"><?php foreach($courses as $c): ?><article class="card course-card"><span class="course-code"><?= e($c['code']) ?> · ENROLLED</span><h2 class="mt-4 text-lg font-bold text-slate-800"><?= e($c['title']) ?></h2><p class="mt-2 flex-1 text-sm leading-6 text-slate-600"><?= e($c['description']) ?></p><div class="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500">Enrolled <?= e(date('M j, Y',strtotime($c['enrolled_at']))) ?> · <?= e($c['duration']) ?></div><div class="alert alert-success mt-4">Course access is active.</div></article><?php endforeach ?></div><?php else: ?><div class="card py-12 text-center"><h2 class="card-title">Your learning starts here</h2><p class="muted mt-2">Browse the available courses and enroll for KSh 5.</p><a class="btn-primary mt-5" href="<?= e(app_url('courses.php')) ?>">Browse courses</a></div><?php endif ?><?php end_page(); ?>
+
+
+===== student/payments.php =====
+<?php
+require_once dirname(__DIR__).'/config/database.php';require_once dirname(__DIR__).'/includes/layout.php';require_login('student');$q=$pdo->prepare('SELECT p.*,c.title FROM payments p JOIN courses c ON c.id=p.course_id WHERE p.user_id=? ORDER BY p.created_at DESC');$q->execute([current_user()['id']]);$payments=$q->fetchAll();$hasPending=(bool)array_filter($payments,fn($p)=>$p['status']==='pending');start_page('Payment history','payments'); ?>
+<div class="mb-4 flex items-center justify-between gap-3"><p class="muted">Your enrollment payments and provider references.</p><a class="btn-secondary" href="<?= e(app_url('student/payments.php')) ?>">Refresh status</a></div><?php if($hasPending): ?><div class="alert alert-success mb-4">A payment is awaiting provider confirmation. This list refreshes automatically while a payment is pending.</div><script>setTimeout(()=>location.reload(),12000);</script><?php endif ?><div class="table-wrap"><table><thead><tr><th>Course</th><th>Method</th><th>Reference</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead><tbody><?php foreach($payments as $p): ?><tr><td class="font-semibold text-slate-700"><?= e($p['title']) ?></td><td><?= e(strtoupper($p['provider'])) ?></td><td class="font-mono text-xs"><?= e($p['reference']) ?></td><td>KSh <?= number_format((float)$p['amount_kes'],2) ?></td><td><span class="badge badge-<?= e($p['status']==='success'?'success':($p['status']==='failed'?'failed':'pending')) ?>"><?= e($p['status']) ?></span></td><td><?= e(date('M j, Y H:i',strtotime($p['created_at']))) ?></td></tr><?php endforeach ?><?php if(!$payments): ?><tr><td colspan="6" class="py-10 text-center text-slate-500">No payment records yet.</td></tr><?php endif ?></tbody></table></div><?php end_page(); ?>
+
+
+===== admin/dashboard.php =====
+<?php
+require_once dirname(__DIR__).'/config/database.php';require_once dirname(__DIR__).'/includes/layout.php';require_login('admin');
+$students=(int)$pdo->query("SELECT COUNT(*) FROM users WHERE role='student'")->fetchColumn();$courses=(int)$pdo->query("SELECT COUNT(*) FROM courses WHERE status='active'")->fetchColumn();$paid=(float)$pdo->query("SELECT COALESCE(SUM(amount_kes),0) FROM payments WHERE status='success'")->fetchColumn();$pending=(int)$pdo->query("SELECT COUNT(*) FROM payments WHERE status='pending'")->fetchColumn();$recent=$pdo->query('SELECT p.*,u.full_name,c.title FROM payments p JOIN users u ON u.id=p.user_id JOIN courses c ON c.id=p.course_id ORDER BY p.created_at DESC LIMIT 7')->fetchAll();
+start_page('Administrator overview','dashboard'); ?><div class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><div class="stat-card"><p class="stat-label">Registered students</p><p class="stat-value"><?= $students ?></p></div><div class="stat-card"><p class="stat-label">Active courses</p><p class="stat-value"><?= $courses ?></p></div><div class="stat-card"><p class="stat-label">Confirmed payments</p><p class="stat-value">KSh <?= number_format($paid,2) ?></p></div><div class="stat-card"><p class="stat-label">Awaiting confirmation</p><p class="stat-value"><?= $pending ?></p></div></div><section class="mb-6 grid gap-4 md:grid-cols-3"><a class="card hover:border-teal-500" href="<?= e(app_url('admin/students.php')) ?>"><span class="course-code">PEOPLE</span><h2 class="card-title mt-2">Manage students</h2><p class="muted mt-2">View student accounts and access status.</p></a><a class="card hover:border-teal-500" href="<?= e(app_url('admin/courses.php')) ?>"><span class="course-code">CURRICULUM</span><h2 class="card-title mt-2">Manage courses</h2><p class="muted mt-2">Create, edit and archive course listings.</p></a><a class="card hover:border-teal-500" href="<?= e(app_url('admin/payments.php')) ?>"><span class="course-code">FINANCE</span><h2 class="card-title mt-2">Payment records</h2><p class="muted mt-2">Review provider, status and payment references.</p></a></section><div class="mb-3 flex items-center justify-between"><h2 class="card-title">Recent transactions</h2><a class="text-sm font-bold text-teal-700" href="<?= e(app_url('admin/payments.php')) ?>">All payments →</a></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Course</th><th>Method</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead><tbody><?php foreach($recent as $p): ?><tr><td class="font-semibold"><?= e($p['full_name']) ?></td><td><?= e($p['title']) ?></td><td><?= e(strtoupper($p['provider'])) ?></td><td>KSh <?= number_format((float)$p['amount_kes'],2) ?></td><td><span class="badge badge-<?= e($p['status']==='success'?'success':($p['status']==='failed'?'failed':'pending')) ?>"><?= e($p['status']) ?></span></td><td><?= e(date('M j, Y',strtotime($p['created_at']))) ?></td></tr><?php endforeach ?><?php if(!$recent): ?><tr><td colspan="6" class="py-8 text-center text-slate-500">No transactions recorded yet.</td></tr><?php endif ?></tbody></table></div><?php end_page(); ?>
+
+
+===== admin/students.php =====
+<?php
+require_once dirname(__DIR__).'/config/database.php';require_once dirname(__DIR__).'/includes/layout.php';require_login('admin');
+if($_SERVER['REQUEST_METHOD']==='POST'){verify_csrf();$id=filter_var($_POST['user_id']??null,FILTER_VALIDATE_INT);if($id&&(int)$id!==(int)current_user()['id']){$pdo->prepare("UPDATE users SET is_active=IF(is_active=1,0,1) WHERE id=? AND role='student'")->execute([$id]);flash('Student access status updated.');}redirect('admin/students.php');}
+$search=trim($_GET['q']??'');$sql="SELECT u.id,u.full_name,u.email,u.phone,u.is_active,u.created_at,COUNT(DISTINCT e.id) AS enrollments FROM users u LEFT JOIN enrollments e ON e.user_id=u.id WHERE u.role='student'";$params=[];if($search!==''){$sql.=' AND (u.full_name LIKE ? OR u.email LIKE ?)';$params=['%'.$search.'%','%'.$search.'%'];}$sql.=' GROUP BY u.id ORDER BY u.created_at DESC';$q=$pdo->prepare($sql);$q->execute($params);$students=$q->fetchAll();start_page('Manage students','students'); ?>
+<div class="mb-4 flex flex-wrap items-center justify-between gap-3"><p class="muted">Student accounts and course activity.</p><form class="flex gap-2"><input class="field !w-60" name="q" placeholder="Search name or email" value="<?= e($search) ?>"><button class="btn-secondary">Search</button></form></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Contact</th><th>Courses</th><th>Joined</th><th>Access</th><th>Action</th></tr></thead><tbody><?php foreach($students as $s): ?><tr><td class="font-semibold"><?= e($s['full_name']) ?></td><td><?= e($s['email']) ?><div class="text-xs text-slate-400"><?= e($s['phone']??'') ?></div></td><td><?= (int)$s['enrollments'] ?></td><td><?= e(date('M j, Y',strtotime($s['created_at']))) ?></td><td><span class="badge badge-<?= $s['is_active']?'success':'failed' ?>"><?= $s['is_active']?'active':'suspended' ?></span></td><td><form method="post"><?= csrf_field() ?><input type="hidden" name="user_id" value="<?= (int)$s['id'] ?>"><button class="<?= $s['is_active']?'btn-danger':'btn-secondary' ?>"><?= $s['is_active']?'Suspend':'Restore' ?></button></form></td></tr><?php endforeach ?><?php if(!$students): ?><tr><td colspan="6" class="py-8 text-center text-slate-500">No matching students.</td></tr><?php endif ?></tbody></table></div><?php end_page(); ?>
+
+
+===== admin/courses.php =====
+<?php
+require_once dirname(__DIR__).'/config/database.php';require_once dirname(__DIR__).'/includes/layout.php';require_login('admin');$edit=null;
+if($_SERVER['REQUEST_METHOD']==='POST'){verify_csrf();$action=$_POST['action']??'';if($action==='save'){$id=filter_var($_POST['id']??null,FILTER_VALIDATE_INT);$code=strtoupper(trim($_POST['code']??''));$title=trim($_POST['title']??'');$description=trim($_POST['description']??'');$duration=trim($_POST['duration']??'');if(!preg_match('/^[A-Z0-9-]{2,30}$/',$code)||$title===''||$description===''||$duration===''){flash('Complete all course fields and use a short course code.','error');redirect('admin/courses.php'.($id?'?edit='.$id:''));}try{if($id)$pdo->prepare('UPDATE courses SET code=?,title=?,description=?,duration=? WHERE id=?')->execute([$code,$title,$description,$duration,$id]);else $pdo->prepare("INSERT INTO courses(code,title,description,duration,status) VALUES(?,?,?,?,'active')")->execute([$code,$title,$description,$duration]);flash($id?'Course details updated.':'Course created.');}catch(PDOException $e){if($e->getCode()==='23000')flash('That course code is already in use.','error');else throw $e;}redirect('admin/courses.php');}if($action==='archive'){$id=(int)($_POST['id']??0);$pdo->prepare("UPDATE courses SET status=IF(status='active','archived','active') WHERE id=?")->execute([$id]);flash('Course availability updated.');redirect('admin/courses.php');}}
+if(isset($_GET['edit'])){$q=$pdo->prepare('SELECT * FROM courses WHERE id=?');$q->execute([(int)$_GET['edit']]);$edit=$q->fetch();}$courses=$pdo->query('SELECT c.*,(SELECT COUNT(*) FROM enrollments e WHERE e.course_id=c.id) AS learners FROM courses c ORDER BY c.created_at DESC')->fetchAll();start_page('Manage courses','courses'); ?>
+<div class="grid gap-5 xl:grid-cols-[360px_1fr]"><section class="card h-max"><p class="eyebrow"><?= $edit?'UPDATE LISTING':'NEW LISTING' ?></p><h2 class="card-title mt-2"><?= $edit?'Edit course':'Create a course' ?></h2><form method="post" class="mt-5 space-y-4"><?= csrf_field() ?><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?= (int)($edit['id']??0) ?>"><div><label class="field-label">Course code</label><input class="field" name="code" required maxlength="30" placeholder="WIS-101" value="<?= e($edit['code']??'') ?>"></div><div><label class="field-label">Course title</label><input class="field" name="title" required maxlength="160" value="<?= e($edit['title']??'') ?>"></div><div><label class="field-label">Duration</label><input class="field" name="duration" required maxlength="80" placeholder="6 weeks" value="<?= e($edit['duration']??'') ?>"></div><div><label class="field-label">Description</label><textarea class="field min-h-28" name="description" required><?= e($edit['description']??'') ?></textarea></div><button class="btn-primary w-full"><?= $edit?'Save changes':'Add course' ?></button><?php if($edit): ?><a class="btn-secondary w-full" href="<?= e(app_url('admin/courses.php')) ?>">Cancel editing</a><?php endif ?></form></section><section><p class="muted mb-3">Archived courses are hidden from students while past enrollment records remain available.</p><div class="table-wrap"><table><thead><tr><th>Course</th><th>Duration</th><th>Students</th><th>Status</th><th>Actions</th></tr></thead><tbody><?php foreach($courses as $c): ?><tr><td><span class="font-semibold"><?= e($c['title']) ?></span><div class="course-code mt-1"><?= e($c['code']) ?></div></td><td><?= e($c['duration']) ?></td><td><?= (int)$c['learners'] ?></td><td><span class="badge badge-<?= $c['status']==='active'?'success':'pending' ?>"><?= e($c['status']) ?></span></td><td><div class="flex gap-2"><a class="btn-secondary" href="<?= e(app_url('admin/courses.php?edit='.(int)$c['id'])) ?>">Edit</a><form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="archive"><input type="hidden" name="id" value="<?= (int)$c['id'] ?>"><button class="<?= $c['status']==='active'?'btn-danger':'btn-secondary' ?>"><?= $c['status']==='active'?'Archive':'Restore' ?></button></form></div></td></tr><?php endforeach ?></tbody></table></div></section></div><?php end_page(); ?>
+
+
+===== admin/payments.php =====
+<?php
+require_once dirname(__DIR__).'/config/database.php';require_once dirname(__DIR__).'/includes/layout.php';require_login('admin');$status=$_GET['status']??'';$allowed=['pending','success','failed'];$sql='SELECT p.*,u.full_name,u.email,c.title FROM payments p JOIN users u ON u.id=p.user_id JOIN courses c ON c.id=p.course_id';$params=[];if(in_array($status,$allowed,true)){$sql.=' WHERE p.status=?';$params[]=$status;}$sql.=' ORDER BY p.created_at DESC';$q=$pdo->prepare($sql);$q->execute($params);$payments=$q->fetchAll();start_page('Payment transactions','payments'); ?>
+<div class="mb-4 flex flex-wrap items-center justify-between gap-3"><p class="muted">Provider-verified records for five-shilling course enrollments.</p><form><select class="field !w-44" name="status" onchange="this.form.submit()"><option value="">All statuses</option><?php foreach($allowed as $s): ?><option value="<?= e($s) ?>" <?= $status===$s?'selected':'' ?>><?= ucfirst($s) ?></option><?php endforeach ?></select></form></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Course</th><th>Provider</th><th>School reference</th><th>Provider receipt / reference</th><th>Amount</th><th>Status</th><th>Created</th></tr></thead><tbody><?php foreach($payments as $p): ?><tr><td class="font-semibold"><?= e($p['full_name']) ?><div class="text-xs text-slate-400"><?= e($p['email']) ?></div></td><td><?= e($p['title']) ?></td><td><?= e(strtoupper($p['provider'])) ?></td><td class="font-mono text-xs"><?= e($p['reference']) ?></td><td class="font-mono text-xs"><?= e($p['provider_transaction']?:$p['provider_reference']?:'—') ?></td><td>KSh <?= number_format((float)$p['amount_kes'],2) ?></td><td><span class="badge badge-<?= e($p['status']==='success'?'success':($p['status']==='failed'?'failed':'pending')) ?>"><?= e($p['status']) ?></span><?php if($p['failure_reason']): ?><div class="text-xs text-rose-700" title="<?= e($p['failure_reason']) ?>">See reason</div><?php endif ?></td><td><?= e(date('M j, Y H:i',strtotime($p['created_at']))) ?></td></tr><?php endforeach ?><?php if(!$payments): ?><tr><td colspan="8" class="py-8 text-center text-slate-500">No payment records match this filter.</td></tr><?php endif ?></tbody></table></div><?php end_page(); ?>
+
+
+===== assets/css/style.css =====
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+:root{--navy:#102a43;--navy2:#173b57;--teal:#137c78;--gold:#c9a65b;--mist:#f3f6f8;--ink:#233746;--red:#b42332}*{box-sizing:border-box}body{font-family:'DM Sans',sans-serif}.bg-mist{background:var(--mist)}.text-ink{color:var(--ink)}h1,h2,h3,.brand{font-family:Manrope,sans-serif}.site-header{background:var(--navy);color:white;border-bottom:3px solid var(--teal)}.brand{display:flex;align-items:center;gap:11px;color:white;letter-spacing:.08em}.brand b{display:block;font-size:15px}.brand small{display:block;font:600 9px 'DM Sans';letter-spacing:.19em;color:#b8d3d6;margin-top:3px}.brand-mark{display:grid;place-items:center;width:39px;height:39px;border:1px solid var(--gold);border-radius:11px;color:#e3c77f;font:800 20px Manrope}.quiet-button{display:inline-flex;align-items:center;justify-content:center;border:1px solid #ffffff44;border-radius:8px;color:white;padding:8px 13px;font-size:13px}.quiet-button:hover{background:#ffffff12}.sidebar{background:white;border:1px solid #e2e9ed;border-radius:14px;padding:20px;height:max-content;min-height:calc(100vh - 190px);display:flex;flex-direction:column}.nav-label,.eyebrow{font-size:10px;letter-spacing:.16em;font-weight:700;color:#718391}.sidebar nav{display:grid;gap:5px;margin-top:16px}.side-link{display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:8px;color:#536776;font-size:14px}.side-link:hover,.side-link.is-active{background:#eaf5f4;color:var(--teal);font-weight:700}.side-dot{height:7px;width:7px;border-radius:50%;background:#b9c8cf}.is-active .side-dot{background:var(--teal)}.sidebar-note{margin-top:auto;padding:18px 5px 0;color:#70818b;font-size:12px;line-height:1.7}.sidebar-note b{color:var(--navy)}.gold-line{display:block;width:28px;height:2px;background:var(--gold);margin-bottom:10px}.page-title{font-size:27px;font-weight:800;color:var(--navy);margin-top:3px}.site-footer{background:var(--navy);color:#becbd2;font-size:12px}.card{background:white;border:1px solid #e2e9ed;border-radius:14px;padding:23px;box-shadow:0 5px 20px #18344b08}.card-title{font:700 17px Manrope;color:var(--navy)}.btn-primary,.btn-secondary,.btn-danger{display:inline-flex;justify-content:center;align-items:center;border-radius:8px;padding:10px 15px;font-size:13px;font-weight:700;transition:.15s}.btn-primary{background:var(--teal);color:white}.btn-primary:hover{background:#0f6865}.btn-secondary{border:1px solid #d5e0e5;background:#fff;color:var(--navy)}.btn-danger{background:#fff1f1;color:var(--red);border:1px solid #f4caca}.field-label{display:block;color:#435968;font-size:12px;font-weight:700;margin-bottom:6px}.field{width:100%;border:1px solid #d5e0e5;border-radius:8px;background:#fff;padding:11px 12px;font-size:14px;color:var(--ink);outline:none}.field:focus{border-color:var(--teal);box-shadow:0 0 0 3px #137c7818}.alert{border-radius:9px;padding:12px 15px;font-size:13px}.alert-success{background:#eaf5ef;color:#216143;border:1px solid #cce8d6}.alert-error{background:#fff0f0;color:var(--red);border:1px solid #f5cece}.stat-card{background:var(--navy);color:white;border-radius:13px;padding:21px}.stat-card:nth-child(2){background:var(--teal)}.stat-card:nth-child(3){background:#fff;color:var(--navy);border:1px solid #e2e9ed}.stat-value{font:800 27px Manrope;margin-top:9px}.stat-label{font-size:12px;opacity:.78}.table-wrap{overflow-x:auto;border:1px solid #e2e9ed;border-radius:12px;background:white}table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}th{background:#f5f8f9;color:#6b7e89;font-size:10px;letter-spacing:.1em;text-transform:uppercase}th,td{padding:13px 15px;border-bottom:1px solid #edf1f3}tr:last-child td{border-bottom:0}.badge{display:inline-flex;border-radius:999px;padding:4px 9px;font-size:10px;font-weight:700;text-transform:capitalize}.badge-success{background:#e7f5ed;color:#27724b}.badge-pending{background:#fff5dc;color:#8b6a15}.badge-failed{background:#fff0f0;color:var(--red)}.course-card{display:flex;flex-direction:column;min-height:235px}.course-code{color:var(--teal);font-size:10px;font-weight:800;letter-spacing:.13em}.hero-panel{background:linear-gradient(120deg,#102a43,#173b57 67%,#137c78);color:white;border-radius:18px;padding:34px;position:relative;overflow:hidden}.hero-panel:after{content:'';position:absolute;width:220px;height:220px;border:1px solid #ffffff20;border-radius:50%;right:-70px;top:-90px;box-shadow:0 0 0 25px #ffffff09,0 0 0 55px #ffffff06}.otp-box{letter-spacing:.35em;font-size:20px;text-align:center}.password-wrap{position:relative}.password-wrap .field{padding-right:48px}.eye-toggle{position:absolute;right:9px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#607583;padding:5px;cursor:pointer}.auth-card{max-width:460px;margin:25px auto}.muted{color:#718391;font-size:13px}.kpi-accent{color:#d8bd74}@media(max-width:767px){.sidebar{min-height:unset;padding:14px}.sidebar nav{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:9px}.side-link{font-size:12px;padding:9px}.sidebar-note{display:none}.page-title{font-size:23px}.hero-panel{padding:25px}}
+
+
+===== assets/js/app.js =====
+document.querySelectorAll('[data-password-toggle]').forEach(button=>button.addEventListener('click',()=>{const input=document.getElementById(button.dataset.passwordToggle);if(!input)return;const show=input.type==='password';input.type=show?'text':'password';button.setAttribute('aria-label',show?'Hide password':'Show password');button.innerHTML=show?'<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c5 0 8.5 4.5 9 7-.2 1.2-1.2 2.8-2.8 4M6.2 6.2C3.8 7.7 2.3 10.3 2 12c.5 2.5 4 7 10 7 1 0 2-.2 2.8-.5"/></svg>':'<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';}));
+
+
